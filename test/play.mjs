@@ -162,7 +162,8 @@ try {
   ok(lobby.onGround, 'you spawn on solid ground');
   // the parkour: start, both checkpoints and the finish count, and the finish pays out once
   const pk = await page.evaluate(async () => {
-    const b = window.__bw, P = b.world().pk, p = b.player, at = async (c) => { p.x = c[0] + 0.5; p.z = c[2] + 0.5; p.y = c[1] + 0.05; p.vx = p.vz = p.vy = 0; await new Promise((r) => setTimeout(r, 250)); };
+    const b = window.__bw, P = b.world().pk, p = b.player, at = async (c) => { p.x = c[0] + 0.5; p.z = c[2] + 0.5; p.y = c[1] + 0.05; p.vx = p.vz = p.vy = 0; await new Promise((r) => setTimeout(r, 250)); await frames(4); };
+    const frames = (n) => new Promise((r) => { const f = () => (--n <= 0 ? r() : requestAnimationFrame(f)); requestAnimationFrame(f); });
     const c0 = b.profile.coins;
     await at(P.start); const started = b.pk.on;
     for (const c of P.cps) await at(c);
@@ -273,6 +274,99 @@ try {
   // --- a match: the shop, items, then every mode ------------------------------------------------------------------
   await play(page, 'solo', 0); await startNow(page);
   await page.waitForFunction(() => window.__bw.match.phase === 'play', null, { timeout: 15000 });
+  // the controls: Menu → Controls takes a new key for walking forward (the key it had goes to the other action), and it walks
+  // where you respawn, facing the way you do
+  const standAtHome = () => page.evaluate(() => { const b = window.__bw, p = b.player, base = b.world().bases[p.team]; Object.assign(p, { x: base.x, z: base.z, y: base.y + 0.05, ry: base.y + 0.05, vx: 0, vy: 0, vz: 0, dead: false, prot: 99 }); b.cam.yaw = base.yaw; });
+  await page.keyboard.press('Escape');
+  await page.waitForFunction(() => window.__bw.game.state === 'pause');
+  await page.click('#pKeys'); await page.click('#bindList button[data-a="fwd"]'); await page.keyboard.press('KeyI');
+  await page.click('#bindList button[data-a="back"]'); await page.keyboard.press('KeyI');   // I again, for back: a swap
+  const rebound = await page.evaluate(() => ({ ...window.__bw.binds, list: document.getElementById('bindList').innerText, help: document.getElementById('keysHelp2').innerText }));
+  ok(rebound.back === 'KeyI' && rebound.fwd === 'KeyS' && /Forward\s*S/.test(rebound.list), `Controls: keys can be changed, and taking one that's in use swaps them (forward ${rebound.fwd}, back ${rebound.back})`);
+  await page.click('#bindList button[data-a="fwd"]'); await page.keyboard.press('KeyO');
+  await page.click('#bindList button[data-a="sprint"]'); await page.keyboard.press('KeyQ');
+  await page.click('#pSprint');
+  await page.click('#resume');
+  await standAtHome();
+  const walk = async (ms, sprintTap = false) => {
+    if (sprintTap) await page.keyboard.press('KeyQ');
+    const at = await page.evaluate(() => [window.__bw.player.x, window.__bw.player.z]);
+    await page.keyboard.down('KeyO'); await page.waitForTimeout(ms);
+    const r = await page.evaluate((at) => { const p = window.__bw.player; return { d: Math.hypot(p.x - at[0], p.z - at[1]), v: Math.hypot(p.vx, p.vz) }; }, at);
+    await page.keyboard.up('KeyO'); return r;
+  };
+  const w1 = await walk(400);
+  ok(w1.d > 0.8 && w1.v < 5.4, `the new forward key walks (${w1.d.toFixed(1)} blocks at ${w1.v.toFixed(1)}/s)`);
+  await standAtHome();
+  const w2 = await walk(400, true);
+  await standAtHome();
+  const w3 = await walk(400);
+  await standAtHome();
+  const w4 = await walk(400, true);
+  ok(w2.v > 5.4 && w3.v > 5.4 && w4.v < 5.4, `Sprint: toggle — the sprint key turns sprinting on (${w2.v.toFixed(1)}/s), it stays on (${w3.v.toFixed(1)}/s), and off again (${w4.v.toFixed(1)}/s)`);
+  const reset = await page.evaluate(() => { const b = window.__bw; Object.assign(b.binds, b.BINDS0); b.sprintMode.toggle = false; b.sprintMode.on = false; localStorage.removeItem('bw:binds'); localStorage.removeItem('bw:sprintToggle'); return b.binds.fwd; });
+  ok(reset === 'KeyW' && rebound.help.includes('SAID'), `the key help in the menu says the keys as you have them (${rebound.help.slice(0, 40)}…)`);
+
+  // your hand in first person: what you hold, and it changes with the hotbar
+  const hand = await page.evaluate(async () => {
+    const b = window.__bw, p = b.player, frame = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    b.cam.first = true; p.inv.wool = 32; p.sword = 1;
+    const items = b.hotbarItems(), sw = items.findIndex((i) => i.kind === 'sword'), bl = items.findIndex((i) => i.kind === 'block');
+    b.setSel(sw); await frame(); const a = { on: b.vm.on, key: b.vm.key, item: !!b.vm.item, arm: !!b.vm.arm };
+    b.setSel(bl); await frame(); const c = { key: b.vm.key, item: !!b.vm.item };
+    b.cam.first = false; await frame();
+    p.inv.wool = 0; p.sword = 0; b.setSel(0);
+    return { a, c, off: !b.vm.on };
+  });
+  ok(hand.a.on && hand.a.arm && hand.a.item && hand.a.key[0] === 's' && hand.c.item && hand.c.key[0] === 'b' && hand.off, `in first person your hand shows what it holds (${hand.a.key}, then ${hand.c.key}); behind you, your character holds it`);
+
+  // your forge keeps your share while you're away, and pays it out when you're back
+  const stash = await page.evaluate(() => {
+    const b = window.__bw, p = b.player, w = b.world(), f = w.gens.find((g) => g.kind === 'forge' && g.t === p.team);
+    p.res.iron = 0; p.res.gold = 0; p.stash = {};
+    Object.assign(p, { x: f.x + 12, z: f.z, y: f.y });
+    for (let i = 0; i < 300; i++) b.generators(p, 0.5);
+    const kept = { ...p.stash }, carried = p.res.iron;
+    Object.assign(p, { x: f.x, z: f.z, y: f.y });
+    b.generators(p, 0.01);
+    return { kept, carried, got: p.res.iron, gold: p.res.gold, left: p.stash.iron };
+  });
+  ok(stash.kept.iron === 48 && stash.kept.gold === 12 && stash.carried === 0 && stash.got === 48 && stash.gold === 12 && stash.left === 0, `the forge keeps your iron and gold while you're away (${stash.kept.iron} and ${stash.kept.gold}, at most) and pays it out when you're back`);
+
+  // bots turn on whoever hit them from farther off than they'd chase (from Normal up)
+  const hitBack = await page.evaluate(() => {
+    const b = window.__bw, p = b.player, bot = [...b.net.bots.values()].find((e) => e.kind === 'p' && !e.dead && e.team !== p.team);
+    b.match.botLevel = 1;
+    Object.assign(bot, { x: p.x + 13, z: p.z, y: p.y, prot: 0 }); bot.ai.foe = null;
+    b.hurt(bot, 0.5, p, {}); b.botThink(bot);
+    const r = bot.ai.foe === p; bot.prot = 0;
+    return { r, chase: b.BL().chase };
+  });
+  ok(hitBack.r, `a bot hit from 13 blocks off comes after you (it chases ${hitBack.chase} on its own)`);
+
+  // the islands falling come as an earthquake: the ground shakes, and every few seconds a jolt
+  await page.evaluate(() => { const b = window.__bw, p = b.player; p.dead = false; p.spectating = false; Object.assign(b.match, { cols: [], sd: true, jolt: -1, t: b.eventAt('fall') + 0.5 }); });   // nothing crumbles, no beds go: the shaking only
+  await page.waitForFunction(() => window.__bw.match.jolt === 0, null, { timeout: 10000 });
+  const calm = await page.evaluate(() => ({ jolt: window.__bw.match.jolt, shake: window.__bw.game.shake }));
+  await page.evaluate(() => { const b = window.__bw; b.match.t = b.eventAt('fall') + 7.2; });
+  await page.waitForFunction(() => window.__bw.match.jolt === 1, null, { timeout: 10000 });
+  const jolted = await page.evaluate(() => window.__bw.game.shake);
+  const quake = { calm: calm.jolt, jolt: 1, shaking: calm.shake > 0.02, shake: jolted };
+  ok(quake.calm === 0 && quake.jolt === 1 && quake.shaking && quake.shake > 0.3, `the islands falling shake the ground, with a jolt every 7 s (${JSON.stringify(quake)})`);
+
+  // others move smoothly however unevenly their updates arrive: each is timed by when it was sent
+  const smooth = await page.evaluate(() => {
+    const b = window.__bw, e = {}, real = performance.now;
+    let fake = 1000000;
+    performance.now = () => fake;
+    try {
+      for (let i = 0; i < 8; i++) { fake = 1000000 + i * 200 + [40, 160, 10, 120, 70, 150, 20, 90][i]; b.pushSample(e, [i, 60, 0, 0, 0, 5, 0], 5000 + i * 200); }
+    } finally { performance.now = real; }
+    const gaps = e.nb.slice(1).map((s, i) => s.t - e.nb[i].t);
+    return { n: e.nb.length, min: Math.min(...gaps), max: Math.max(...gaps) };
+  });
+  ok(smooth.n === 8 && Math.abs(smooth.min - 0.2) < 0.02 && Math.abs(smooth.max - 0.2) < 0.02, `positions are timed by when they were sent, not by when they came (gaps ${smooth.min.toFixed(3)}–${smooth.max.toFixed(3)} s, sent every 0.2 s)`);
+  await page.evaluate(() => { const m = window.__bw.match; Object.assign(m, { t: 30, jolt: -1, cols: null, fall: 0, sd: false }); m.said = new Set(); window.__bw.game.shake = 0; });
   const shop = await page.evaluate(async () => {
     const b = window.__bw, p = b.player, r = {};
     r.bots = b.net.bots.size; r.teams = b.world().n;
@@ -291,6 +385,7 @@ try {
   ok(['wool', 'sword1', 'armor1', 'pick', 'shears', 'bow1', 'fireball', 'tnt', 'popup', 'golem', 'bug', 'milk', 'tracker', 'ladder', 'egg', 'pearl'].every((k) => shop[k]), 'everything in the shop can be bought');
   ok(shop.up, 'team upgrades apply');
   ok(shop.popup && shop.golem && shop.fx, 'pop-up towers, Dream Defenders, magic milk and the tracker work');
+
   for (const [mode, mp] of [['duos', 1], ['trios', 2], ['squads', 3], ['rush', 4], ['lowgrav', 5], ['voidless', 6], ['lucky', 7]]) {
     await play(page, mode, mp); await startNow(page);
     await page.waitForFunction((m) => window.__bw.match.phase === 'play' && window.__bw.match.mode === m, mode, { timeout: 15000 });
@@ -398,8 +493,11 @@ try {
   await P.waitForTimeout(900);
   const kxy = await P.evaluate(() => { const b = window.__bw, n = b.lobbyNpcs.find((k) => k.kind === 'wardrobe').npc, v = b.camera.position.clone().set(n.x, n.y + 1.1, n.z).project(b.camera); return [(v.x * 0.5 + 0.5) * innerWidth, (0.5 - v.y * 0.5) * innerHeight]; });
   await f.tap(kxy);
+  const settle = (fn) => P.waitForFunction(fn, null, { timeout: 4000 }).catch(() => {});   // what a tap does shows on a later frame (later still on a slow machine)
+  await settle(() => document.getElementById('panel').classList.contains('on'));
   ok(await P.evaluate(() => document.getElementById('panel').classList.contains('on') && document.getElementById('panelTitle').textContent === 'Wardrobe'), 'a tap on a keeper talks to them (the wardrobe opens)');
   await f.tap('#panelClose');
+  await settle(() => !document.getElementById('panel').classList.contains('on') && !document.getElementById('tUse').classList.contains('hidden'));
   ok(await P.evaluate(() => !document.getElementById('panel').classList.contains('on') && !document.getElementById('tUse').classList.contains('hidden')), 'its × closes it, and TALK shows next to a keeper');
   await f.tap('#tUse');
   ok(await P.evaluate(() => document.getElementById('panel').classList.contains('on')), 'TALK talks to the keeper');
@@ -433,8 +531,11 @@ try {
   const cell = await P.evaluate(() => { const a = window.__bw.aim.block; return a ? [a.x + a.nx, a.y + a.ny, a.z + a.nz] : null; });
   const placed0 = await P.evaluate(() => window.__bw.player.stats.placed);
   await f.tap('#tPlace');
-  const placedOk = await P.evaluate(([c, n0]) => { const b = window.__bw; return b.player.stats.placed === n0 + 1 && b.getB(c[0], c[1], c[2]) === b.TEAMS[3].wool; }, [cell, placed0]);
-  ok(!!cell && placedOk, 'aimed at the ground, a tap on the block button puts a wool block there');
+  // the block goes down on the game's next frame (later on a slow machine)
+  await P.waitForFunction((n0) => window.__bw.player.stats.placed > n0, placed0, { timeout: 5000 }).catch(() => {});
+  const placedOk = await P.evaluate(([c, n0]) => { const b = window.__bw; return b.player.stats.placed >= n0 + 1 && b.getB(c[0], c[1], c[2]) === b.TEAMS[3].wool; }, [cell, placed0]);   // a slow tap can last long enough to bridge a second
+  const why = placedOk ? '' : await P.evaluate(([c, n0]) => { const b = window.__bw, p = b.player; return JSON.stringify({ cell: c, placed: p.stats.placed - n0, at: c && b.getB(c[0], c[1], c[2]), wool: p.inv.wool, team: p.team, sel: b.selected()?.kind, aim: b.aim.block && [b.aim.block.x, b.aim.block.y, b.aim.block.z], pos: [p.x, p.y, p.z].map((v) => +v.toFixed(2)), state: b.game.state, phase: b.match.phase, dead: p.dead, under: (() => { const r = document.getElementById('tPlace').getBoundingClientRect(); const e = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2); return e?.id || e?.className; })() }); }, [cell, placed0]);
+  ok(!!cell && placedOk, `aimed at the ground, a tap on the block button puts a wool block there${why ? ` (${why})` : ''}`);
   await f.down('#tBreak'); await P.waitForTimeout(1600); await f.up();
   ok(await P.evaluate((c) => window.__bw.getB(c[0], c[1], c[2]) === 0, cell), 'holding the pickaxe button breaks it again');
   // the shop, quick chat, sneaking, pause

@@ -73,6 +73,7 @@
   #pops { position: absolute; inset: 0; overflow: hidden; }
   .pop { position: absolute; font-size: 18px; font-weight: 700; color: #fff; text-shadow: 0 2px 0 #000, 0 0 6px rgba(0,0,0,.6); transform: translate(-50%, -50%); white-space: nowrap; }
   .pop.crit { color: var(--gold); font-size: 23px; } .pop.me { color: #ff7a8a; } .pop.res { font-size: 15px; }
+  .pop.res-iron { color: #e6e9ee; font-size: 16px; } .pop.res-gold { color: #ffd84a; font-size: 16px; } .pop.res-emerald { color: #45ec95; font-size: 16px; }
   #bottom { position: absolute; left: 50%; bottom: calc(var(--sb) + 12px); transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 7px; }
   #status { display: flex; align-items: center; gap: 10px; }
   #hearts { display: grid; grid-template-columns: repeat(10, auto); gap: 1px; padding: 5px 8px; }
@@ -117,6 +118,12 @@
   .keys { font-size: 13px; color: #fff; line-height: 1.7; text-shadow: 0 1px 0 rgba(0,0,0,.45); }
   .opt { display: flex; align-items: center; gap: 12px; font-size: 15px; color: var(--dim); }
   .opt input { accent-color: #7be04f; width: 160px; }
+  .binds { display: grid; grid-template-columns: repeat(2, minmax(200px, 1fr)); gap: 6px 14px; padding: 12px 14px; max-width: 560px; border-radius: 14px; }
+  .binds button.bind { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 6px 10px; border: 0; border-radius: 9px; background: rgba(255,255,255,.08); color: #fff; font: inherit; font-size: 14px; cursor: pointer; }
+  .binds button.bind:hover { background: rgba(255,255,255,.16); }
+  .binds button.bind.wait { background: rgba(123,224,79,.32); }
+  .binds .bfoot { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: 13px; color: var(--dim); }
+  body.touch #pKeys, body.touch #pSprint { display: none; }
   #end h1 { margin: 0; font-size: clamp(36px, 6.4vw, 64px); line-height: 1; }
   #end .sub { font-size: 17px; color: var(--dim); max-width: 520px; }
   .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; width: min(520px, 100%); }
@@ -568,7 +575,8 @@
   <button id="resume" class="btn">Resume</button>
   <div class="opt">Look speed <input id="sens" type="range" min="0.4" max="2.4" step="0.1"></div>
   <div class="opt">Field of view <input id="fovIn" type="range" min="60" max="100" step="1"></div>
-  <div class="row"><button id="pCam" class="btn ghost">Camera: behind</button><button id="pCrouch" class="btn ghost">Crouch: hold</button><button id="pMute" class="btn ghost">Sound: on</button><button id="pMusic" class="btn ghost">Music: on</button></div>
+  <div class="row"><button id="pCam" class="btn ghost">Camera: behind</button><button id="pCrouch" class="btn ghost">Crouch: hold</button><button id="pSprint" class="btn ghost">Sprint: hold</button><button id="pMute" class="btn ghost">Sound: on</button><button id="pMusic" class="btn ghost">Music: on</button><button id="pKeys" class="btn ghost">Controls</button></div>
+  <div id="bindList" class="binds glass hidden"></div>
   <div class="keys" id="keysHelp2"></div>
   <button id="quit" class="btn ghost">Back to the lobby</button>
 </div>
@@ -671,10 +679,11 @@ const modeOf = (id) => MODES[id] || MODES.solo;
 // swing: time between swings; strafe; clutch: how often they save themselves at an edge; bridge: time per block; wait:
 // how long they gear up before a raid.
 const BOT_LEVELS = [
-  { id: 'easy', name: 'Easy', react: 0.95, aim: 2.4, speed: 0.8, swing: 1.6, strafe: 0.35, clutch: 0.15, bridge: 1.7, wait: 1.8 },
-  { id: 'normal', name: 'Normal', react: 0.45, aim: 1, speed: 0.88, swing: 1, strafe: 0.7, clutch: 0.6, bridge: 1, wait: 1 },
-  { id: 'hard', name: 'Hard', react: 0.28, aim: 0.7, speed: 0.94, swing: 0.85, strafe: 0.85, clutch: 0.85, bridge: 0.85, wait: 0.75 },
-  { id: 'insane', name: 'Insane', react: 0.15, aim: 0.45, speed: 1, swing: 0.75, strafe: 1, clutch: 1, bridge: 0.7, wait: 0.5 },
+  // chase: how far (blocks) a bot comes for someone; hit back: whether it turns on whoever just hit it from farther off
+  { id: 'easy', name: 'Easy', react: 0.95, aim: 2.4, speed: 0.8, swing: 1.6, strafe: 0.35, clutch: 0.15, bridge: 1.7, wait: 1.8, chase: 6, hitBack: false },
+  { id: 'normal', name: 'Normal', react: 0.36, aim: 0.9, speed: 0.92, swing: 0.95, strafe: 0.8, clutch: 0.7, bridge: 0.92, wait: 0.9, chase: 8, hitBack: true },
+  { id: 'hard', name: 'Hard', react: 0.24, aim: 0.65, speed: 0.97, swing: 0.82, strafe: 0.9, clutch: 0.9, bridge: 0.8, wait: 0.7, chase: 10, hitBack: true },
+  { id: 'insane', name: 'Insane', react: 0.14, aim: 0.42, speed: 1, swing: 0.74, strafe: 1, clutch: 1, bridge: 0.68, wait: 0.5, chase: 12, hitBack: true },
 ];
 
 // === COSMETICS (the catalog) ===
@@ -1156,6 +1165,7 @@ const sound = (() => {
     crit: (v, p) => { SFX.hit(v, p); tone(1500, 'triangle', 0.2, 0.15 * v, { slide: 2400, pan: p }); },
     bow: (v, p) => { tone(520, 'triangle', 0.14, 0.14 * v, { slide: 170, pan: p }); noise(0.1, 0.14 * v, { f: 3200, sweep: 900, q: 0.8, pan: p }); },
     throw: (v, p) => noise(0.24, 0.16 * v, { f: 800, sweep: 2600, q: 0.6, pan: p }),
+    quake: () => { noise(1.6, 0.55, { type: 'lowpass', f: 220, sweep: 60, attack: 0.15 }); tone(42, 'sine', 1.5, 0.5, { slide: 30, attack: 0.1 }); noise(0.5, 0.18, { type: 'bandpass', f: 700, sweep: 200, q: 0.7, delay: 0.25 }); },
     boom: (v, p) => { noise(1.2, 0.8 * v, { type: 'lowpass', f: 1000, sweep: 70, pan: p }); tone(66, 'sine', 0.9, 0.55 * v, { slide: 28, pan: p }); noise(0.4, 0.35 * v, { f: 2400, sweep: 300, q: 0.5, pan: p }); },
     fuse: (v, p) => noise(0.6, 0.1 * v, { type: 'highpass', f: 3600, pan: p }),
     pearl: (v, p) => { tone(300, 'sine', 0.3, 0.18 * v, { slide: 1500, pan: p }); tone(900, 'triangle', 0.22, 0.07 * v, { delay: 0.12, slide: 280, pan: p }); },
@@ -2964,6 +2974,22 @@ function buildModel(e) {
   e.model = model;
   dressModel(e);
 }
+/** What a hand holds (by held code, see heldCode), placed in the hand of an arm hanging down; null for an empty hand. */
+function heldMesh(key) {
+  const kind = key[0], n = +key.slice(1);
+  let h = null;
+  if (kind === 's') h = new THREE.Mesh(SWORD_GEO[clamp(n, 0, 3)], itemMat);
+  else if (kind === 'p') h = new THREE.Mesh(PICK_GEO[clamp(n - 1, 0, 3)], itemMat);
+  else if (kind === 'x') h = new THREE.Mesh(AXE_GEO[clamp(n - 1, 0, 3)], itemMat);
+  else if (kind === 'h') h = new THREE.Mesh(SHEARS_GEO, itemMat);
+  else if (kind === 'k') h = new THREE.Mesh(STICK_GEO, itemMat);
+  else if (kind === 'w' || kind === 'v') h = new THREE.Mesh((kind === 'v' ? BOW_DRAWN_GEO : BOW_GEO)[clamp(n - 1, 0, 2)], itemMat);
+  if (h) { h.rotation.x = Math.PI / 2 - 0.25; return h; }
+  if (SMALL_GEO[kind] || kind === 'o') h = new THREE.Mesh(kind === 'o' ? POTION_GEO[clamp(n, 0, 2)] : SMALL_GEO[kind], itemMat);
+  else if (kind === 'b' && BP[n]?.sideT != null) h = new THREE.Mesh(heldBlockGeo(n), heldMat);
+  if (h) { h.position.set(0, 0.02, 0.1); h.rotation.set(0.4, 0.6, 0); }
+  return h;
+}
 /** Name tag, outfit, hat, what's in hand and armor, from the entity's current state (e.wear: what they wear). */
 function dressModel(e) {
   const m = e.model; if (!m) return;
@@ -2981,16 +3007,7 @@ function dressModel(e) {
   const key = e.held || '';
   if (m.heldKey !== key) {
     if (m.held) m.hand.remove(m.held);
-    m.held = null;
-    const kind = key[0], n = +key.slice(1);
-    if (kind === 's') { m.held = new THREE.Mesh(SWORD_GEO[clamp(n, 0, 3)], itemMat); m.held.rotation.x = Math.PI / 2 - 0.25; }
-    else if (kind === 'p') { m.held = new THREE.Mesh(PICK_GEO[clamp(n - 1, 0, 3)], itemMat); m.held.rotation.x = Math.PI / 2 - 0.25; }
-    else if (kind === 'x') { m.held = new THREE.Mesh(AXE_GEO[clamp(n - 1, 0, 3)], itemMat); m.held.rotation.x = Math.PI / 2 - 0.25; }
-    else if (kind === 'h') { m.held = new THREE.Mesh(SHEARS_GEO, itemMat); m.held.rotation.x = Math.PI / 2 - 0.25; }
-    else if (kind === 'k') { m.held = new THREE.Mesh(STICK_GEO, itemMat); m.held.rotation.x = Math.PI / 2 - 0.25; }
-    else if (kind === 'w' || kind === 'v') { m.held = new THREE.Mesh((kind === 'v' ? BOW_DRAWN_GEO : BOW_GEO)[clamp(n - 1, 0, 2)], itemMat); m.held.rotation.x = Math.PI / 2 - 0.25; }
-    else if (SMALL_GEO[kind] || kind === 'o') { m.held = new THREE.Mesh(kind === 'o' ? POTION_GEO[clamp(n, 0, 2)] : SMALL_GEO[kind], itemMat); m.held.position.set(0, 0.02, 0.1); m.held.rotation.set(0.4, 0.6, 0); }
-    else if (kind === 'b' && BP[n]?.sideT != null) { m.held = new THREE.Mesh(heldBlockGeo(n), heldMat); m.held.position.set(0, 0.02, 0.1); m.held.rotation.set(0.4, 0.6, 0); }
+    m.held = heldMesh(key);
     if (m.held) m.hand.add(m.held);
     m.heldKey = key;
   }
@@ -3979,12 +3996,29 @@ function genRates(g, t) {
   if (up.forge >= 3) out.push(['emerald', C.forgeEmerald / gm]);
   return out;
 }
+/** What your forge keeps for you while you're away, at most (the diamond and emerald islands keep nothing: stand there). */
+const STASH_CAP = { iron: 48, gold: 12, emerald: 2 };
 /** Standing at a generator fills your pockets: iron and gold at your own island's forge (faster with Iron Forge, and
- *  emeralds from Forge III), diamonds on the diamond islands, emeralds in the middle. */
+ *  emeralds from Forge III), diamonds on the diamond islands, emeralds in the middle. Your forge goes on making your
+ *  share while you're away and keeps it (up to STASH_CAP), so coming home after a fight pays out what it made. */
 function generators(e, dt) {
   if (!alive(e) || e.team < 0 || e.kind !== 'p' || !world.gens) return;
   world.gens.forEach((g, i) => {
-    if (Math.abs(e.y - g.y) > 1.6 || Math.hypot(e.x - g.x, e.z - g.z) > (g.kind === 'forge' ? 2.4 : 2.7)) return;
+    const here = Math.abs(e.y - g.y) <= 1.6 && Math.hypot(e.x - g.x, e.z - g.z) <= (g.kind === 'forge' ? 2.4 : 2.7);
+    if (g.kind === 'forge' && g.t === e.team) {
+      const st = (e.stash ||= {});
+      for (const [k, every] of genRates(g, e.team)) {
+        const key = i + k;
+        e.genT[key] = (e.genT[key] || 0) + dt;
+        while (e.genT[key] >= every) { e.genT[key] -= every; st[k] = Math.min(STASH_CAP[k] ?? 0, (st[k] || 0) + 1); }
+        if (here && st[k] > 0) {
+          if (e === player && st[k] >= 4) pop(e.x, e.y + 2.1 + 0.3 * RES.indexOf(k), e.z, `+${st[k]} ${k}`, 'res-' + k);
+          give(e, k, st[k]); st[k] = 0;
+        }
+      }
+      return;
+    }
+    if (!here) return;
     for (const [k, every] of genRates(g, e.team)) {
       const key = i + k;
       e.genT[key] = (e.genT[key] || 0) + dt;
@@ -4517,12 +4551,18 @@ function botStack(e, tough) {
 const teamsIn = () => { const n = world.n || 4, out = []; for (let t = 0; t < n; t++) if (ents.some((o) => o.team === t && o.kind === 'p' && !o.out)) out.push(t); return out; };
 /** What a bot means to do next (every 0.3 s): fight who's close, rush home to a raid, wall in the bed, fetch gems, raid. */
 function botThink(e) {
-  const ai = e.ai, b = teamBase(e.team);
-  let foe = null, fd = ai.state === 'home' ? 12 : 7;
+  const ai = e.ai, b = teamBase(e.team), L = BL();
+  let foe = null, fd = ai.state === 'home' ? L.chase + 5 : L.chase;
   for (const o of ents) {
     if (o === e || o.team === e.team || o.team < 0 || !alive(o)) continue;
     const d = Math.hypot(o.x - e.x, o.z - e.z);
     if (d < fd && Math.abs(o.y - e.y) < 3 && (!isInvis(o) || d < 3)) { fd = d; foe = o; }   // the invisible only when they bump into you
+  }
+  // hit a moment ago by someone farther off (an archer, a blow before a knock back): after them, if they can be reached
+  const lh = e.lastHit;
+  if (!foe && L.hitBack && lh && game.time - lh.at < 4 && !match.fall) {
+    const o = ents.find((x) => x !== e && x.team !== e.team && x.team >= 0 && alive(x) && idOf(x) === lh.id);
+    if (o && Math.hypot(o.x - e.x, o.z - e.z) < 16 && Math.abs(o.y - e.y) < 4 && !isInvis(o)) foe = o;
   }
   if (foe !== ai.foe) { ai.foe = foe; ai.seen = 0; }
   // nobody close: someone in bowshot (or fireball range) with a clear line?
@@ -4830,16 +4870,29 @@ const flagsOf = (e) => (e.dead ? 1 : 0) | (e.out ? 2 : 0) | (e.spectating ? 4 : 
 const posOf = (e) => [r2(e.x), r2(e.y), r2(e.z), r2(e.yaw), r2(e.pitch || 0), r1(e.vx), r1(e.vz), r1(e.hp), flagsOf(e), e.swingN & 255, gearOf(e), e.held || ''];
 
 // --- puppets: people (and the host's bots) drawn from what the network says ---------------------
-function pushSample(e, p) {
+// Each sample is timed by the sender's clock (`pt`, ms), moved onto ours by the smallest delay seen so far (the delay
+// drifts up slowly, so a slow patch early on doesn't stick): the network's jitter doesn't make anyone stutter. States
+// from games without `pt` are timed by when they came.
+function pushSample(e, p, pt) {
   const [x, y, z, yaw, pitch, vx, vz] = p.map((v) => num(v));
-  const nb = e.nb || (e.nb = []), t = nowS(), last = nb[nb.length - 1];
+  const nb = e.nb || (e.nb = []), now = nowS();
+  let t = now;
+  if (typeof pt === 'number' && Number.isFinite(pt)) {
+    const sent = pt / 1000, lag = now - sent;
+    if (e.lag == null || Math.abs(lag - e.lag) > 2 || sent < e.sentAt - 5) { e.lag = lag; nb.length = 0; }   // first, or the sender's page started over
+    else if (sent <= e.sentAt) return;                                                                     // came after a newer one
+    else { const was = e.lag; e.lag = Math.min(lag, e.lag + 0.004); for (const s of nb) s.t += e.lag - was; }
+    e.sentAt = sent;
+    t = sent + e.lag;
+  }
+  const last = nb[nb.length - 1];
   if (last && Math.hypot(x - last.x, y - last.y, z - last.z) > 6) nb.length = 0;   // a respawn: no sliding across the map
   nb.push({ t, x, y, z, yaw, pitch, vx, vz });
   while (nb.length > 10) nb.shift();
   if (nb.length === 1) { e.x = x; e.y = e.ry = y; e.z = z; e.yaw = yaw; }
 }
-function applyPuppet(e, p) {
-  pushSample(e, p);
+function applyPuppet(e, p, pt) {
+  pushSample(e, p, pt);
   const f = num(p[8]), hp = num(p[7], 20), gear = num(p[10]);
   const wasDead = e.dead;
   e.dead = !!(f & 1); e.out = !!(f & 2); e.spectating = !!(f & 4); e.flying = !!(f & 8); e.invis = !!(f & 16); e.sneak = !!(f & 32); e.milk = !!(f & 64);
@@ -4950,7 +5003,7 @@ function syncLobbyHuman(peer) {
   }
   e.lv = num(s.lv, 0, 0, 9999) | 0; e.wear = wearFrom(s.w); e.tagColor = '#ffffff';
   peerExtras(e, s);
-  applyPuppet(e, s.p);
+  applyPuppet(e, s.p, s.pt);
 }
 /** Emotes and quick chat ride in the room state as [id, count]: a new count plays it. */
 function peerExtras(e, s) {
@@ -4963,6 +5016,7 @@ function publishLobby(force) {
   const key = JSON.stringify(st);
   if (!force && key === net.published) return;
   net.published = key;
+  st.pt = Math.round(performance.now());
   try { net.room.setState(st); } catch { /* ignore */ }
 }
 
@@ -5198,7 +5252,7 @@ function retireBots() { for (const e of net.bots.values()) removeEnt(e); net.bot
 /** The bot level for a public match: from how the host has been doing (new players meet easy bots; winners, harder ones). */
 function autoBotLevel() {
   const lv = level(), recent = profile.recent, won = recent.filter((x) => x === 1).length;
-  let b = lv < 4 ? 0 : lv < 15 ? 1 : lv < 50 ? 2 : 3;
+  let b = lv < 2 ? 0 : lv < 12 ? 1 : lv < 40 ? 2 : 3;
   if (recent.length >= 4 && won >= recent.length - 1) b++;
   if (recent.length >= 4 && won === 0) b--;
   return clamp(b, 0, 3);
@@ -5256,7 +5310,7 @@ function beginMatch(ep, seats, bots, mode, mp, bd) {
   match.mode = MODES[mode] ? mode : match.mode; match.mp = mp; match.botLevel = bd;
   const M = modeOf(match.mode), n = M.teams;
   match.ep = ep; match.phase = 'play'; match.t = 0; match.sd = false; match.winner = -1; match.beds = new Array(n).fill(true); game.toasted = new Set();
-  match.up = new Array(n).fill(0).map(() => ({ ...freshUp(), ...(M.startUp || {}) })); match.trapAt = new Array(n).fill(0); match.said = new Set(); match.fall = 0; match.cols = null; match.blood = false;
+  match.up = new Array(n).fill(0).map(() => ({ ...freshUp(), ...(M.startUp || {}) })); match.trapAt = new Array(n).fill(0); match.said = new Set(); match.fall = 0; match.cols = null; match.jolt = -1; match.blood = false;
   match.seats = {}; for (const [id, t] of Object.entries(seats)) match.seats[nstr(id, 60)] = clamp(num(t), 0, n - 1);
   match.checkT = 0; match.synced = new Map();
   enterMatchMap(match.mode, mp, n);
@@ -5341,11 +5395,11 @@ function followHost(s) {
     if (Array.isArray(s.tp)) match.tp = s.tp.map((x) => (cosOf('topper', x) ? x : 'none'));
     const mine = match.seats[net.me];
     if (mine != null && player && player.team !== mine) spawnMe(mine);
-    syncBots(s.bl);
+    syncBots(s.bl, s.pt);
   }
   if (ph === 'end' && match.phase === 'play') endMatch(num(s.wn, -1, -1, (world.n || 8) - 1) | 0, false);
 }
-function syncBots(list) {
+function syncBots(list, pt) {
   if (!Array.isArray(list)) return;
   const seen = new Set();
   for (const b of list.slice(0, 40)) {
@@ -5353,7 +5407,7 @@ function syncBots(list) {
     const nid = num(b[0]); seen.add(nid);
     let e = net.bots.get(nid);
     if (!e) e = addBot(nid, clamp(num(b[1]), 0, (world.n || 4) - 1), nstr(b[2], 20), num(b[3], 0, 0, 2e9), b[17] === 'golem' || b[17] === 'bug' ? b[17] : 'p');
-    applyPuppet(e, b.slice(4));
+    applyPuppet(e, b.slice(4), pt);
     if (Array.isArray(b[16])) { const [k, f, bd, h] = b[16].map((v) => num(v, 0, 0, 999) | 0); Object.assign(e.stats, { kills: k, finals: f, beds: bd, hits: h }); }
   }
   for (const [nid, e] of net.bots) if (!seen.has(nid)) { net.bots.delete(nid); removeEnt(e); }
@@ -5371,7 +5425,7 @@ function syncHuman(peer) {
   e.lv = num(s.lv, 0, 0, 9999) | 0; e.wear = wearFrom(s.w);
   if (Array.isArray(s.sc)) e.sc = s.sc.slice(0, 4).map((v) => num(v, 0, 0, 999) | 0);
   peerExtras(e, s);
-  applyPuppet(e, s.p);
+  applyPuppet(e, s.p, s.pt);
 }
 function dropHuman(id) {
   const e = id && net.humans.get(id); if (!e) return;
@@ -5398,6 +5452,7 @@ function publishMatch(force) {
   const key = JSON.stringify(st);
   if (!force && key === net.published) return;
   net.published = key;
+  st.pt = Math.round(performance.now());
   try { net.room.setState(st); } catch { /* ignore */ }
 }
 function teamsAlive() {
@@ -5468,9 +5523,9 @@ function announce(id) {
     feed(`<b style="color:${dia ? '#6ff0e6' : '#45ec95'}">${dia ? 'Diamond' : 'Emerald'} generators</b> are now tier ${tier}`);
     sound.play('go');
   } else if (id === 'fall') {
-    banner('The islands are falling!', 'Get to the middle — everything else crumbles into the void', 'red', 4200);
-    feed('<b style="color:#ff6a6a">SUDDEN DEATH</b> · the islands crumble toward the middle');
-    sound.play('mybed');
+    banner('Earthquake!', 'The islands are falling — get to the middle, everything else crumbles into the void', 'red', 4200);
+    feed('<b style="color:#ff6a6a">EARTHQUAKE</b> · the islands crumble toward the middle');
+    sound.play('quake');
   }
 }
 /** Sudden death: from the edge of the map in, every column crumbles into the void, down to the middle island. A half
@@ -5486,6 +5541,17 @@ function crumble() {
   }
   const R0 = match.cols[0]?.[0] ?? keep, R = Math.ceil(lerp(R0, keep, clamp((match.t - at) / CONFIG.bw.fallSeconds, 0, 1)) * 2) / 2;
   match.fall = R;
+  // an earthquake while it goes: the ground trembles all the way, and every few seconds a jolt throws you off your feet
+  // (the same moments for everyone, from the match's clock)
+  const q = match.t - at;
+  if (q <= CONFIG.bw.fallSeconds + 2 && player && alive(player) && !player.spectating) {
+    game.shake = Math.max(game.shake, 0.16 + 0.08 * Math.sin(q * 11));
+    const jolt = Math.floor(q / 7);
+    if (jolt !== match.jolt) {
+      const first = match.jolt < 0; match.jolt = jolt;
+      if (!first) { game.shake = 1; sound.play('quake'); if (player.onGround) { player.vy = Math.max(player.vy, 3.4); player.onGround = false; } }
+    }
+  }
   let shown = 0;
   while (match.colI < match.cols.length && match.cols[match.colI][0] >= R) {
     const [, x, z] = match.cols[match.colI++];
@@ -5861,7 +5927,7 @@ function lobbyTick(dt) {
   }
   // the bridging range: endless wool past the runway; blocks fade after a while; fall and you're back at the start
   const R = world.range, inRange = R && p.z > R.z0 - 6 && p.x > R.minX && p.x < R.maxX;
-  if (inRange !== !!p.practice) { p.practice = inRange; if (inRange) tipOnce('range', isTouch ? 'Bridging range: tap <b>SNEAK</b>, then hold the block button as you walk backwards off the edge' : 'Bridging range: endless wool — sneak (<kbd>Shift</kbd>) and hold <b>right click</b> walking backwards off the edge', 6000); refreshHotbar(); }
+  if (inRange !== !!p.practice) { p.practice = inRange; if (inRange) tipOnce('range', isTouch ? 'Bridging range: tap <b>SNEAK</b>, then hold the block button as you walk backwards off the edge' : `Bridging range: endless wool — sneak (${kb('sneak')}) and hold <b>right click</b> walking backwards off the edge`, 6000); refreshHotbar(); }
   if (p.practice) { p.inv.wool = 64; const dist = Math.floor(p.z - R.z0) + 1; if (p.onGround && onBridge(p) && dist > practice.run) practice.run = dist; }
   for (let i = practice.blocks.length - 1; i >= 0; i--) { const b = practice.blocks[i]; if (game.time - b.t > 12) { if (getB(b.x, b.y, b.z) && placed[VI(b.x, b.y, b.z)]) { setBlock(b.x, b.y, b.z, B.AIR); crumbs(b.x, b.y, b.z, B.W_WHITE, 4); } practice.blocks.splice(i, 1); } }
   // fell off: back to where you were going (a checkpoint, the range's start, or the plaza)
@@ -5958,15 +6024,15 @@ const veteran = learned.size > 0;                    // played before (back when
 /** Sneaking, the first time it would have saved you: at an edge with blocks, after buying wool, or after falling off. */
 function learnSneak() {
   learnOnce('sneak', isTouch ? 'Tap <b>SNEAK</b> and you can’t walk off edges — then hold the <b>block</b> button as you walk to bridge'
-    : 'Hold <kbd>Shift</kbd> to sneak — you can’t walk off edges. Then hold <b>right click</b> as you walk to bridge', 6500);
+    : `Hold ${kb('sneak')} to sneak — you can’t walk off edges. Then hold <b>right click</b> as you walk to bridge`, 6500);
 }
-const learnKeys = () => { if (!isTouch) learnOnce('keys-sneak', 'New: <kbd>Shift</kbd> sneaks — you can’t walk off edges · double-tap <kbd>W</kbd> to sprint', 6500); };
+const learnKeys = () => { if (!isTouch) learnOnce('keys-sneak', `New: ${kb('sneak')} sneaks — you can’t walk off edges · double-tap ${kb('fwd')} to sprint`, 6500); };
 /** Bed Wars lessons, each at the moment it's useful (once). */
 function coach(p) {
   if (!alive(p) || game.state !== 'play' || match.phase !== 'play') return;
   if (match.t > 9 && veteran) learnKeys();
   if (match.t > 2) learnOnce('forge', 'Stand on your <b>forge</b> (the iron block out front) — it fills your pockets with iron and gold');
-  if (p.res.iron >= 8 && !p.inv.wool && onOwnIsland(p) && bedAlive(p.team)) learnOnce('defend', `Open the <b>shop</b> (${isTouch ? 'tap Shop' : '<kbd>B</kbd>'}) and wall in your bed with wool — rushers come early!`);
+  if (p.res.iron >= 8 && !p.inv.wool && onOwnIsland(p) && bedAlive(p.team)) learnOnce('defend', `Open the <b>shop</b> (${isTouch ? 'tap Shop' : kb('shop')}) and wall in your bed with wool — rushers come early!`);
   if (match.t > 110 && !p.res.diamond) learnOnce('diamonds', 'The islands at the corners make <b>diamonds</b> — spend them on <b>team upgrades</b> at the keeper across from the shop');
   for (let t = 0; t < (world.n || 4); t++) if (t !== p.team && bedAlive(t) && onIsland(p, t)) learnOnce('raid', 'Break their <b>bed</b> and they can’t respawn — shears, axes and pickaxes get you through their walls fast');
 }
@@ -6021,8 +6087,16 @@ function updatePops(dt) {
     if (vis) { b.el.style.left = ((_v.x * 0.5 + 0.5) * innerWidth).toFixed(1) + 'px'; b.el.style.top = ((-_v.y * 0.5 + 0.5) * innerHeight).toFixed(1) + 'px'; b.el.style.opacity = String(Math.min(1, (3.2 - b.t) * 3)); }
   }
 }
-const KEYS_BW = '<kbd>WASD</kbd> move · double-tap <kbd>W</kbd> sprint · <kbd>Shift</kbd> or <kbd>C</kbd> sneak, you can’t fall off · <b>Left click</b> hit or break · <b>Right click</b> place (hold while walking to bridge), draw the bow, throw or drink · <kbd>1</kbd>–<kbd>9</kbd> or scroll · <kbd>B</kbd> shop and team upgrades · <kbd>T</kbd> quick chat · <kbd>V</kbd> camera';
-const KEYS_LOBBY = '<kbd>WASD</kbd> walk · <kbd>Space</kbd> jump · <kbd>E</kbd> talk to keepers · <kbd>Enter</kbd> play · <kbd>G</kbd> emotes and quick chat · <kbd>V</kbd> camera';
+/** The keys, as you have them (Menu → Controls changes them). */
+const moveKeys = () => (['fwd', 'left', 'back', 'right'].every((a) => binds[a] === BINDS0[a]) ? '<kbd>WASD</kbd>' : ['fwd', 'left', 'back', 'right'].map(kb).join(''));
+const sprintKeys = () => (sprintMode.toggle ? `${kb('sprint')} sprint on and off` : `double-tap ${kb('fwd')} or hold ${kb('sprint')} sprint`);
+const KEYS_BW = () => `${moveKeys()} move · ${sprintKeys()} · ${kb('sneak')} or ${kb('crouch')} sneak, you can’t fall off · <b>Left click</b> hit or break · <b>Right click</b> place (hold while walking to bridge), draw the bow, throw or drink · <kbd>1</kbd>–<kbd>9</kbd> or scroll · ${kb('shop')} shop and team upgrades · ${kb('chat')} quick chat · ${kb('cam')} camera`;
+const KEYS_LOBBY = () => `${moveKeys()} walk · ${kb('jump')} jump · ${kb('use')} talk to keepers · <kbd>Enter</kbd> play · ${kb('chat')} emotes and quick chat · ${kb('cam')} camera`;
+function keysHelp() {
+  $('keysHelp2').innerHTML = isTouch ? '' : game.scene === 'lobby' ? KEYS_LOBBY() : KEYS_BW();
+  const sk = document.querySelector('#shopBtn kbd'); if (sk) sk.textContent = keyName(binds.shop);
+  const uk = document.querySelector('#lPrompt kbd'); if (uk) uk.textContent = keyName(binds.use);
+}
 /** The first time you buy something you use from the hotbar: how. */
 function learnItem(id) {
   if (id === 'wool') { learnSneak(); return; }
@@ -6059,7 +6133,7 @@ function setScene(kind) {
   $('hud').classList.add('on'); $('touch').classList.add('on');
   $('status').classList.toggle('hidden', kind !== 'bw');
   $('inviteBtn').classList.toggle('hidden', kind === 'lobby' || !orb?.room?.invite);
-  $('keysHelp2').innerHTML = isTouch ? '' : kind === 'lobby' ? KEYS_LOBBY : KEYS_BW;
+  game.scene = kind; keysHelp();
   $('quit').textContent = kind === 'lobby' ? 'Close' : 'Back to the lobby';
   closeEmotes(); syncTouchFly();
   refreshHotbar(); renderHearts(); renderRes(); renderTeams(); metaChanged();
@@ -6386,7 +6460,30 @@ function renderMute() { $('muteBtn').innerHTML = `<img class="px" alt="" src="${
 function renderPauseOpts() {
   $('pCam').textContent = cam.first ? 'Camera: your eyes' : 'Camera: behind'; $('pMute').textContent = sound.muted ? 'Sound: off' : 'Sound: on';
   $('pCrouch').textContent = input.crouchToggle ? 'Crouch: toggle' : 'Crouch: hold'; $('pMusic').textContent = settings.music ? 'Music: on' : 'Music: off';
+  $('pSprint').textContent = sprintMode.toggle ? 'Sprint: toggle' : 'Sprint: hold';
 }
+$('pSprint').addEventListener('click', () => { sprintMode.toggle = !sprintMode.toggle; sprintMode.on = false; saved.set('sprintToggle', sprintMode.toggle); renderPauseOpts(); renderBinds(); });
+// Controls: click an action, press its new key. A key something else had goes to that action's old key (a swap).
+let rebinding = null;
+function renderBinds() {
+  const el = $('bindList'); if (el.classList.contains('hidden')) return;
+  el.innerHTML = Object.keys(BINDS0).map((a) => `<button class="bind${rebinding === a ? ' wait' : ''}" data-a="${a}"><span>${BIND_NAMES[a]}${a === 'sprint' ? (sprintMode.toggle ? ' (toggle)' : ' (hold)') : ''}</span>${rebinding === a ? '<kbd>Press a key…</kbd>' : kb(a)}</button>`).join('')
+    + `<div class="bfoot"><span>${rebinding ? 'Esc keeps the old key' : 'Also: double-tap forward to sprint · 1–9 and scroll pick · M sound'}</span><button class="btn ghost" id="bindReset">Reset</button></div>`;
+}
+function takeBind(code) {
+  const a = rebinding; rebinding = null;
+  if (code !== 'Escape' && a) {
+    if (UNBINDABLE.test(code)) tip(`<kbd>${esc(keyName(code))}</kbd> is taken by the game`, 2200);
+    else { const other = boundTo(code); if (other && other !== a) binds[other] = binds[a]; binds[a] = code; saved.set('binds', binds); keysHelp(); }
+  }
+  renderBinds(); sound.play('ui');
+}
+$('pKeys').addEventListener('click', () => { const el = $('bindList'); el.classList.toggle('hidden'); rebinding = null; renderBinds(); sound.play('ui'); });
+$('bindList').addEventListener('click', (ev) => {
+  if (ev.target.closest('#bindReset')) { Object.assign(binds, BINDS0); saved.set('binds', binds); rebinding = null; keysHelp(); renderBinds(); return; }
+  const b = ev.target.closest('button.bind'); if (!b) return;
+  rebinding = rebinding === b.dataset.a ? null : b.dataset.a; renderBinds();
+});
 $('pCam').addEventListener('click', () => { cam.first = !cam.first; saved.set('first', cam.first); renderPauseOpts(); });
 $('pCrouch').addEventListener('click', () => { input.crouchToggle = !input.crouchToggle; saved.set('crouchToggle', input.crouchToggle); setCrouch(false); renderPauseOpts(); });
 $('pMute').addEventListener('click', () => { sound.toggle(); renderMute(); });
@@ -6794,6 +6891,28 @@ function awardMatch() {
 }
 
 // --- input -----------------------------------------------------------------------------------
+// Keys you can change (pause menu → Controls), saved on this device. The arrows, right Shift and G stay as second keys
+// for walking, sneaking and quick chat unless one of them is given to something else.
+const BINDS0 = { fwd: 'KeyW', back: 'KeyS', left: 'KeyA', right: 'KeyD', jump: 'Space', sneak: 'ShiftLeft', crouch: 'KeyC', sprint: 'ControlLeft', shop: 'KeyB', chat: 'KeyT', cam: 'KeyV', use: 'KeyE' };
+const BIND_NAMES = { fwd: 'Forward', back: 'Back', left: 'Left', right: 'Right', jump: 'Jump', sneak: 'Sneak (hold)', crouch: 'Crouch', sprint: 'Sprint', shop: 'Shop', chat: 'Emotes and quick chat', cam: 'Camera', use: 'Talk to keepers' };
+const BIND_ALT = { fwd: 'ArrowUp', back: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight', sneak: 'ShiftRight', chat: 'KeyG' };
+const UNBINDABLE = /^(Escape|Enter|Digit[1-9]|Tab|Meta(Left|Right)|OS(Left|Right))$/;
+const binds = { ...BINDS0 };
+for (const [a, c] of Object.entries(saved.get('binds', {}) || {})) if (a in BINDS0 && typeof c === 'string' && c.length < 24 && !UNBINDABLE.test(c)) binds[a] = c;
+const boundTo = (code) => Object.keys(binds).find((a) => binds[a] === code) || null;
+/** Is key `code` action `a`'s (its own key, or its second key while nothing else has that)? */
+const isKey = (code, a) => code === binds[a] || (BIND_ALT[a] === code && !boundTo(code));
+const held = (a) => input.keys.has(binds[a]) || (!!BIND_ALT[a] && !boundTo(BIND_ALT[a]) && input.keys.has(BIND_ALT[a]));
+function keyName(code) {
+  const m = /^(Key|Digit|Numpad)(.+)$/.exec(code);
+  if (m) return (m[1] === 'Numpad' ? 'Num ' : '') + m[2];
+  return { Space: 'Space', ShiftLeft: 'Shift', ShiftRight: 'Right Shift', ControlLeft: 'Ctrl', ControlRight: 'Right Ctrl', AltLeft: 'Alt', AltRight: 'Right Alt', CapsLock: 'Caps Lock',
+    ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→', Backquote: '`', Minus: '-', Equal: '=', BracketLeft: '[', BracketRight: ']', Semicolon: ';', Quote: "'",
+    Backslash: '\\', Comma: ',', Period: '.', Slash: '/', Backspace: 'Backspace' }[code] || code.replace(/(Left|Right)$/, '');
+}
+const kb = (a) => `<kbd>${esc(keyName(binds[a]))}</kbd>`;
+// Sprinting the toggle way: the sprint key turns it on until you press it again (you sprint whenever you walk forward)
+const sprintMode = { toggle: !!saved.get('sprintToggle', false), on: false };
 const cam = { yaw: 0, pitch: -0.25, dist: 4.4, first: saved.get('first', false), titleT: 0 };
 // Taps are buffered (brkQ / placeQ / jumpQ, in seconds) so a quick click between two frames still counts.
 // Sneaking: Shift held, or C / SNEAK (held, or tapped on and off with the pause menu's "Crouch: toggle", the default on
@@ -6834,6 +6953,7 @@ document.addEventListener('pointerlockerror', () => { if (input.lockClick) noLoc
 function selectSlot(i) { const n = hotbarItems().length; if (!n) return; setSel(clamp(i, 0, n - 1)); refreshHotbar(); }
 addEventListener('keydown', (ev) => {
   sound.init();
+  if (rebinding) { ev.preventDefault(); takeBind(ev.code); return; }
   const n = /^Digit([1-9])$/.exec(ev.code);
   if (ev.code === 'Escape') {
     if (!$('emoteMenu').classList.contains('hidden')) closeEmotes();
@@ -6847,30 +6967,33 @@ addEventListener('keydown', (ev) => {
   // the emote menu: its numbers pick
   if (!$('emoteMenu').classList.contains('hidden') && n) { const b = $('emoteMenu').querySelectorAll('button')[+n[1] - 1]; b?.click(); return; }
   if (dialog === 'shop' && n) { shopBuy($('shopGrid').querySelectorAll('.item')[+n[1] - 1]); return; }
-  if (dialog) { if (ev.code === 'KeyB' && dialog === 'shop') closeDialog(); return; }
+  if (dialog) { if (isKey(ev.code, 'shop') && dialog === 'shop') closeDialog(); return; }
   if (panel || overlayUp()) return;
   if (game.state !== 'play') return;
   if (game.mode === 'lobby') {
-    if (ev.code === 'KeyE') { interact(nearKeeper()); return; }
+    if (isKey(ev.code, 'use')) { interact(nearKeeper()); return; }
     if (ev.code === 'Enter') { openPlay(); return; }
-    if (ev.code === 'KeyG' || ev.code === 'KeyT') { toggleEmotes(); return; }
+    if (isKey(ev.code, 'chat')) { toggleEmotes(); return; }
   } else {
-    if (ev.code === 'KeyB') { if (player && onOwnIsland(player) && alive(player) && match.phase === 'play') openDialog('shop'); else tip('The shop is on your own island'); return; }
-    if (ev.code === 'KeyT' || ev.code === 'KeyG') { toggleEmotes(); return; }
+    if (isKey(ev.code, 'shop')) { if (player && onOwnIsland(player) && alive(player) && match.phase === 'play') openDialog('shop'); else tip('The shop is on your own island'); return; }
+    if (isKey(ev.code, 'chat')) { toggleEmotes(); return; }
   }
-  if (ev.code === 'KeyV') { cam.first = !cam.first; saved.set('first', cam.first); return; }
-  if (ev.code === 'KeyM') { sound.toggle(); renderMute(); return; }
+  if (isKey(ev.code, 'cam')) { cam.first = !cam.first; saved.set('first', cam.first); return; }
+  if (ev.code === 'KeyM' && !boundTo('KeyM')) { sound.toggle(); renderMute(); return; }
   if (n) { selectSlot(+n[1] - 1); return; }
   input.keys.add(ev.code);
   if (!ev.repeat) {
-    if (ev.code === 'KeyC') { if (input.crouchToggle && player && !player.flying && !player.dead) setCrouch(!input.crouch); }   // held, it sneaks (or flies down)
-    else if (ev.code === 'KeyW' || ev.code === 'ArrowUp') { const t = nowS(); if (t - input.lastW < 0.3) input.sprint = true; input.lastW = t; }
-    // Ctrl still sprints (Minecraft hands), but Ctrl+W closes the tab: say so, once
-    else if (ev.code === 'ControlLeft') learnOnce('ctrl', 'Double-tap <kbd>W</kbd> to sprint — <kbd>Ctrl</kbd>+<kbd>W</kbd> closes the tab', 5000);
+    if (isKey(ev.code, 'crouch')) { if (input.crouchToggle && player && !player.flying && !player.dead) setCrouch(!input.crouch); }   // held, it sneaks (or flies down)
+    else if (isKey(ev.code, 'fwd')) { const t = nowS(); if (t - input.lastW < 0.3) input.sprint = true; input.lastW = t; }
+    else if (isKey(ev.code, 'sprint')) {
+      if (sprintMode.toggle) { sprintMode.on = !sprintMode.on; tip(sprintMode.on ? 'Sprint on' : 'Sprint off', 900); }
+      // Ctrl sprints (Minecraft hands), but Ctrl+W closes the tab: say so, once
+      else if (ev.code === 'ControlLeft' && binds.fwd === 'KeyW') learnOnce('ctrl', 'Double-tap <kbd>W</kbd> to sprint — <kbd>Ctrl</kbd>+<kbd>W</kbd> closes the tab (pick another sprint key in Menu → Controls)', 5000);
+    }
   }
-  if (ev.code === 'Space') { if (!ev.repeat) input.jumpQ = 0.18; input.jump = true; ev.preventDefault(); }
+  if (isKey(ev.code, 'jump')) { if (!ev.repeat) input.jumpQ = 0.18; input.jump = true; ev.preventDefault(); }
 });
-addEventListener('keyup', (ev) => { input.keys.delete(ev.code); if (ev.code === 'Space') input.jump = false; if (ev.code === 'KeyW' || ev.code === 'ArrowUp') input.sprint = false; });
+addEventListener('keyup', (ev) => { input.keys.delete(ev.code); if (isKey(ev.code, 'jump')) input.jump = false; if (isKey(ev.code, 'fwd')) input.sprint = false; });
 addEventListener('blur', () => { input.keys.clear(); input.brk = input.place = input.jump = input.down = input.sprint = false; });
 /** A keeper under the crosshair (the lobby): clicking them talks to them. */
 function keeperAt() {
@@ -7000,6 +7123,45 @@ function updateCamera(dt) {
   if (Math.abs(camera.fov - fov) > 0.05) { camera.fov = damp(camera.fov, fov, 8, dt); camera.updateProjectionMatrix(); }
   sound.listener.x = p.x; sound.listener.y = p.y; sound.listener.z = p.z; sound.listener.yaw = cam.yaw;
 }
+// --- your hand, in first person: your own arm (your skin and sleeve) and what it holds, drawn over the world -----------
+// A scene of its own with a camera that never moves, so the hand stays put while the world turns, never sinks into a
+// wall you stand against, and keeps its size whatever the field of view.
+const vm = { scene: new THREE.Scene(), cam: new THREE.PerspectiveCamera(70, 1, 0.01, 6), root: new THREE.Group(), shoulder: new THREE.Group(), hand: new THREE.Group(),
+  arm: null, mat: null, item: null, key: null, bob: 0, swing: 0, swingN: -1, poke: 0, equip: 0, on: false };
+vm.scene.add(new THREE.HemisphereLight('#d6ecff', '#7d8f5c', 1.3));
+{ const s = new THREE.DirectionalLight('#fff3de', 1.6); s.position.set(-0.5, 1, 0.8); vm.scene.add(s); }
+{ const flip = new THREE.Group(); flip.rotation.y = Math.PI; vm.root.add(flip); flip.add(vm.shoulder); vm.shoulder.add(vm.hand); vm.hand.position.set(0, -10 * PX, 1 * PX); }
+vm.root.scale.setScalar(0.8); vm.scene.add(vm.root);
+/** Put a block down or throw something: the hand pokes forward. */
+const vmPoke = () => { vm.poke = 0.2; };
+function updateViewmodel(dt) {
+  const p = player;
+  vm.on = !!p && cam.first && alive(p) && !p.spectating && !!p.model && game.mode !== 'boot' && panel !== 'wardrobe' && !(game.mode === 'bw' && match.phase === 'end');
+  if (!vm.on) return;
+  if (vm.mat !== p.model.mat) { if (vm.arm) vm.shoulder.remove(vm.arm); vm.mat = p.model.mat; vm.arm = new THREE.Mesh(GEO.arm, vm.mat); vm.arm.position.y = -4 * PX; vm.shoulder.add(vm.arm); }
+  const key = p.held || '';
+  if (key !== vm.key) {
+    if (vm.item) vm.hand.remove(vm.item);
+    vm.item = heldMesh(key); if (vm.item) vm.hand.add(vm.item);
+    if (vm.key !== null) vm.equip = 1;
+    vm.key = key;
+  }
+  // a blow, or digging (a swing after swing for as long as it takes)
+  if (p.swingN !== vm.swingN) { vm.swingN = p.swingN; vm.swing = 1; }
+  else if (p.dig && vm.swing <= 0) vm.swing = 1;
+  vm.swing = Math.max(0, vm.swing - dt / 0.28); vm.poke = Math.max(0, vm.poke - dt); vm.equip = Math.max(0, vm.equip - dt * 5);
+  const speed = p.onGround ? Math.min(1, Math.hypot(p.vx, p.vz) / 4.4) : 0;
+  vm.bob += dt * (3 + 5.5 * speed) * (Math.hypot(p.vx, p.vz) > 5.4 ? 1.2 : 1);
+  const s = Math.sin((1 - vm.swing) * Math.PI) * (vm.swing > 0 ? 1 : 0), draw = Math.min(1, p.draw || 0), poke = Math.sin((vm.poke / 0.2) * Math.PI);
+  const bx = Math.sin(vm.bob) * 0.018 * speed, by = -Math.abs(Math.cos(vm.bob)) * 0.016 * speed;
+  vm.root.position.set(0.48 + bx - s * 0.12 - draw * 0.16, -0.4 + by - vm.equip * 0.4 - (p.sneak ? 0.02 : 0) + s * 0.06, -0.72 - s * 0.14 + poke * 0.1 + draw * 0.08);
+  vm.shoulder.rotation.set(-1.3 - s * 0.8 - poke * 0.3 - draw * 0.4, -0.12 + s * 0.65 - draw * 0.25, 0.05 + s * 0.15);
+  vm.cam.aspect = camera.aspect; vm.cam.updateProjectionMatrix();
+}
+function drawViewmodel() {
+  if (!vm.on) return;
+  renderer.autoClear = false; renderer.clearDepth(); renderer.render(vm.scene, vm.cam); renderer.autoClear = true;
+}
 /** A slow flight around the arena (while it loads), or round the winners at the end of a match. */
 function updateFlyCam(dt, around) {
   cam.titleT += dt;
@@ -7033,8 +7195,8 @@ function playerTick(dt) {
   const k = input.keys, ok = playing();
   let f = 0, s = 0;
   if (ok) {
-    if (k.has('KeyW') || k.has('ArrowUp')) f += 1; if (k.has('KeyS') || k.has('ArrowDown')) f -= 1;
-    if (k.has('KeyD') || k.has('ArrowRight')) s += 1; if (k.has('KeyA') || k.has('ArrowLeft')) s -= 1;
+    if (held('fwd')) f += 1; if (held('back')) f -= 1;
+    if (held('right')) s += 1; if (held('left')) s -= 1;
     f -= input.stick.y; s += input.stick.x;
   }
   const fx = -Math.sin(cam.yaw), fz = -Math.cos(cam.yaw), rx = Math.cos(cam.yaw), rz = -Math.sin(cam.yaw);
@@ -7043,11 +7205,11 @@ function playerTick(dt) {
   if (len > 0.1 && p.emote) p.emote = null;
   // Shift (or C, held) sneaks on your feet and flies you down in the air; sneaking is slow, never sprints and keeps
   // you from walking off edges (one-block steps down are fine). Holding "place" guards edges too, at walking pace.
-  const shift = k.has('ShiftLeft') || k.has('ShiftRight') || (k.has('KeyC') && (!input.crouchToggle || p.flying)), sel = selected(), drawing = p.draw > 0;
+  const shift = held('sneak') || (held('crouch') && (!input.crouchToggle || p.flying)), sel = selected(), drawing = p.draw > 0;
   if (p.flying !== input.wasFly) syncTouchFly();       // took off, or landed
   const sneak = p.sneak = ok && !p.flying && !p.spectating && (shift || input.crouch);
   if (sneak || drawing || f <= 0.3) input.sprint = false;
-  const sprint = !p.flying && !sneak && !drawing && f > 0.3 && (input.sprint || k.has('ControlLeft') || Math.hypot(input.stick.x, input.stick.y) > 0.95);
+  const sprint = !p.flying && !sneak && !drawing && f > 0.3 && (input.sprint || (sprintMode.toggle ? sprintMode.on : held('sprint')) || Math.hypot(input.stick.x, input.stick.y) > 0.95);
   const up = ok && (input.jump || input.jumpQ > 0), down = ok && (input.down || (p.flying && shift));
   if (p.onGround) input.jumpQ = 0; else input.jumpQ = Math.max(0, input.jumpQ - dt);
   const canBuild = inMatch || (game.mode === 'lobby' && p.practice);
@@ -7090,14 +7252,14 @@ function playerTick(dt) {
     else if (sel?.kind === 'bow') { if (!p.inv.arrow) tipOnce('noarrows', 'Out of arrows — buy more in the shop', 3000); }
     else if (sel?.kind === 'use') {
       // a fresh press throws, lights or drinks (holding the button doesn't spend the lot)
-      if (input.placeQ > 0) { if (useItem(p, sel.id, sel.id === 'tnt' ? null : aimDir(), sel.id === 'tnt' ? tntCell() : null)) refreshHotbar(); else if (ready(p, sel.id)) sound.play('nope'); }
+      if (input.placeQ > 0) { if (useItem(p, sel.id, sel.id === 'tnt' ? null : aimDir(), sel.id === 'tnt' ? tntCell() : null)) { vmPoke(); refreshHotbar(); } else if (ready(p, sel.id)) sound.play('nope'); }
     }
     else if (!it) { tipOnce('noblocks', 'No blocks — buy <b>wool</b> in the shop on your island', 3500); }
     else {
       // a tap (or holding still) places where you point, or sneaking at an edge, against the block you stand on;
       // holding it while you walk builds a bridge under your steps
       const c = placeTarget(p, wx, wz, len, walkPlace);
-      if (c && inRange(c) && p.inv[it.inv] > 0 && placeBlock(p, c[0], c[1], c[2], it.id)) { spend(p, it); if (game.mode === 'lobby') practice.blocks.push({ x: c[0], y: c[1], z: c[2], t: game.time }); }
+      if (c && inRange(c) && p.inv[it.inv] > 0 && placeBlock(p, c[0], c[1], c[2], it.id)) { spend(p, it); vmPoke(); if (game.mode === 'lobby') practice.blocks.push({ x: c[0], y: c[1], z: c[2], t: game.time }); }
       refreshHotbar();
     }
     input.placeQ = 0;
@@ -7460,7 +7622,8 @@ function frame(now) {
   // paused behind the blurred menu: draw a couple of frames, then let the GPU rest
   const paused = game.state === 'pause';
   if (!paused) pauseDraws = 0;
-  if ((!paused || pauseDraws++ < 2) && !(DEBUG && window.__bw?.norender)) { if (composer) composer.render(); else renderer.render(scene, camera); }
+  updateViewmodel(dt);
+  if ((!paused || pauseDraws++ < 2) && !(DEBUG && window.__bw?.norender)) { if (composer) composer.render(); else renderer.render(scene, camera); drawViewmodel(); }
   // keep it smooth: trade resolution for frame rate when needed (applied at the top of the next frame, right before
   // it's drawn: resizing a canvas empties it, and an empty canvas on screen is a black flash)
   if (!paused) {
@@ -7508,7 +7671,8 @@ function boot() {
     profile, levelOf, level, dailies, weeklies, countQuests, checkAchievements, awardMatch, claimLogin, loginState, claimPass, pass, passTier, openBox, buyWithCoins, owns, worn, COS, cosOf, ACH,
     genMap, genLobby, enterLobby, enterBw, playMode, leaveToLobby, playAgain, startMatch, toLobby, endMatch, dealSeats, pickTeam, routeTo, teamsAlive, whoIsWhere, pickRoom,
     popupTower, spawnCreature, luckyOpen, genRates, killFxOf, bedFx, startDance, dances, previewCos, openPanel, closePanel, renderPanel, openDaily, openPlay, interact, nearKeeper, lobbyNpcs, refreshBoards, boardRows,
-    camera, scene, renderer, spawnEnt, lookFor, burst, COL, dressModel, sound, phys, mods, SEASONS, applyMyLooks, creditOwned, metaChanged, practice, pk, finishParkour, doEmote, doChat };
+    camera, scene, renderer, spawnEnt, lookFor, burst, COL, dressModel, sound, phys, mods, SEASONS, applyMyLooks, creditOwned, metaChanged, practice, pk, finishParkour, doEmote, doChat,
+    binds, BINDS0, sprintMode, vm, generators, STASH_CAP, botThink, BL, eventAt, pushSample };
 }
 try { boot(); } catch (e) { $('loadMsg').textContent = 'Bed Wars couldn’t start here.'; throw e; }
 </script>
