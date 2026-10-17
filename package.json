@@ -1,0 +1,21 @@
+{
+  "name": "bedwars",
+  "private": true,
+  "description": "Bed Wars in your browser, in one HTML file: bridge across, gear up, guard your bed and break theirs.",
+  "type": "module",
+  "license": "MIT",
+  "homepage": "https://orbworlds.com/orb/bed-wars",
+  "scripts": {
+    "start": "node orb-kit/bin/orb.mjs dev .",
+    "share": "node orb-kit/bin/orb.mjs share",
+    "test": "node test/play.mjs",
+    "test:quick": "node test/play.mjs --quick"
+  },
+  "devDependencies": {
+    "playwright": "^1.63.0",
+    "three": "^0.186.1"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
