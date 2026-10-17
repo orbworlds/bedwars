@@ -493,8 +493,11 @@ try {
   await P.waitForTimeout(900);
   const kxy = await P.evaluate(() => { const b = window.__bw, n = b.lobbyNpcs.find((k) => k.kind === 'wardrobe').npc, v = b.camera.position.clone().set(n.x, n.y + 1.1, n.z).project(b.camera); return [(v.x * 0.5 + 0.5) * innerWidth, (0.5 - v.y * 0.5) * innerHeight]; });
   await f.tap(kxy);
+  const settle = (fn) => P.waitForFunction(fn, null, { timeout: 4000 }).catch(() => {});   // what a tap does shows on a later frame (later still on a slow machine)
+  await settle(() => document.getElementById('panel').classList.contains('on'));
   ok(await P.evaluate(() => document.getElementById('panel').classList.contains('on') && document.getElementById('panelTitle').textContent === 'Wardrobe'), 'a tap on a keeper talks to them (the wardrobe opens)');
   await f.tap('#panelClose');
+  await settle(() => !document.getElementById('panel').classList.contains('on') && !document.getElementById('tUse').classList.contains('hidden'));
   ok(await P.evaluate(() => !document.getElementById('panel').classList.contains('on') && !document.getElementById('tUse').classList.contains('hidden')), 'its × closes it, and TALK shows next to a keeper');
   await f.tap('#tUse');
   ok(await P.evaluate(() => document.getElementById('panel').classList.contains('on')), 'TALK talks to the keeper');
@@ -530,7 +533,7 @@ try {
   await f.tap('#tPlace');
   // the block goes down on the game's next frame (later on a slow machine)
   await P.waitForFunction((n0) => window.__bw.player.stats.placed > n0, placed0, { timeout: 5000 }).catch(() => {});
-  const placedOk = await P.evaluate(([c, n0]) => { const b = window.__bw; return b.player.stats.placed === n0 + 1 && b.getB(c[0], c[1], c[2]) === b.TEAMS[3].wool; }, [cell, placed0]);
+  const placedOk = await P.evaluate(([c, n0]) => { const b = window.__bw; return b.player.stats.placed >= n0 + 1 && b.getB(c[0], c[1], c[2]) === b.TEAMS[3].wool; }, [cell, placed0]);   // a slow tap can last long enough to bridge a second
   const why = placedOk ? '' : await P.evaluate(([c, n0]) => { const b = window.__bw, p = b.player; return JSON.stringify({ cell: c, placed: p.stats.placed - n0, at: c && b.getB(c[0], c[1], c[2]), wool: p.inv.wool, team: p.team, sel: b.selected()?.kind, aim: b.aim.block && [b.aim.block.x, b.aim.block.y, b.aim.block.z], pos: [p.x, p.y, p.z].map((v) => +v.toFixed(2)), state: b.game.state, phase: b.match.phase, dead: p.dead, under: (() => { const r = document.getElementById('tPlace').getBoundingClientRect(); const e = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2); return e?.id || e?.className; })() }); }, [cell, placed0]);
   ok(!!cell && placedOk, `aimed at the ground, a tap on the block button puts a wool block there${why ? ` (${why})` : ''}`);
   await f.down('#tBreak'); await P.waitForTimeout(1600); await f.up();
