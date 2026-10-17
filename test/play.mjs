@@ -531,7 +531,8 @@ try {
   // the block goes down on the game's next frame (later on a slow machine)
   await P.waitForFunction((n0) => window.__bw.player.stats.placed > n0, placed0, { timeout: 5000 }).catch(() => {});
   const placedOk = await P.evaluate(([c, n0]) => { const b = window.__bw; return b.player.stats.placed === n0 + 1 && b.getB(c[0], c[1], c[2]) === b.TEAMS[3].wool; }, [cell, placed0]);
-  ok(!!cell && placedOk, 'aimed at the ground, a tap on the block button puts a wool block there');
+  const why = placedOk ? '' : await P.evaluate(([c, n0]) => { const b = window.__bw, p = b.player; return JSON.stringify({ cell: c, placed: p.stats.placed - n0, at: c && b.getB(c[0], c[1], c[2]), wool: p.inv.wool, team: p.team, sel: b.selected()?.kind, aim: b.aim.block && [b.aim.block.x, b.aim.block.y, b.aim.block.z], pos: [p.x, p.y, p.z].map((v) => +v.toFixed(2)), state: b.game.state, phase: b.match.phase, dead: p.dead, under: (() => { const r = document.getElementById('tPlace').getBoundingClientRect(); const e = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2); return e?.id || e?.className; })() }); }, [cell, placed0]);
+  ok(!!cell && placedOk, `aimed at the ground, a tap on the block button puts a wool block there${why ? ` (${why})` : ''}`);
   await f.down('#tBreak'); await P.waitForTimeout(1600); await f.up();
   ok(await P.evaluate((c) => window.__bw.getB(c[0], c[1], c[2]) === 0, cell), 'holding the pickaxe button breaks it again');
   // the shop, quick chat, sneaking, pause
