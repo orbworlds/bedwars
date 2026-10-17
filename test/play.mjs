@@ -344,14 +344,13 @@ try {
   ok(hitBack.r, `a bot hit from 13 blocks off comes after you (it chases ${hitBack.chase} on its own)`);
 
   // the islands falling come as an earthquake: the ground shakes, and every few seconds a jolt
-  const quake = await page.evaluate(async () => {
-    const b = window.__bw, p = b.player, at = b.eventAt('fall');
-    p.dead = false; p.spectating = false; b.match.cols = []; b.match.sd = true; b.match.t = at + 0.5; b.match.jolt = -1;   // nothing crumbles, no beds go: the shaking only
-    await new Promise((r) => setTimeout(r, 120));
-    const calm = b.match.jolt, shaking = b.game.shake > 0.02;
-    b.match.t = at + 7.2; await new Promise((r) => setTimeout(r, 120));
-    return { calm, jolt: b.match.jolt, shaking, shake: b.game.shake };
-  });
+  await page.evaluate(() => { const b = window.__bw, p = b.player; p.dead = false; p.spectating = false; Object.assign(b.match, { cols: [], sd: true, jolt: -1, t: b.eventAt('fall') + 0.5 }); });   // nothing crumbles, no beds go: the shaking only
+  await page.waitForFunction(() => window.__bw.match.jolt === 0, null, { timeout: 10000 });
+  const calm = await page.evaluate(() => ({ jolt: window.__bw.match.jolt, shake: window.__bw.game.shake }));
+  await page.evaluate(() => { const b = window.__bw; b.match.t = b.eventAt('fall') + 7.2; });
+  await page.waitForFunction(() => window.__bw.match.jolt === 1, null, { timeout: 10000 });
+  const jolted = await page.evaluate(() => window.__bw.game.shake);
+  const quake = { calm: calm.jolt, jolt: 1, shaking: calm.shake > 0.02, shake: jolted };
   ok(quake.calm === 0 && quake.jolt === 1 && quake.shaking && quake.shake > 0.3, `the islands falling shake the ground, with a jolt every 7 s (${JSON.stringify(quake)})`);
 
   // others move smoothly however unevenly their updates arrive: each is timed by when it was sent
