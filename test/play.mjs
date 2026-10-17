@@ -1,22 +1,20 @@
 #!/usr/bin/env node
-// Bed Wars (public/templates/bedwars.html) in a headless browser, through its ?debug hooks (window.__bw):
+// Bed Wars (index.html) in a headless browser, through its ?debug hooks (window.__bw):
 // every arena in both layouts is checked for what play needs, every mode plays (one to the very end), the shop and
 // items work, progression pays out (quests, coins, the Bed Pass, boxes, achievements, the login streak, the wardrobe and
 // credit purchases), and two players in one match room see each other, pick teams and play (orb.room faked with a
 // relay between two browser windows). Then phones and tablets: a phone plays from the daily reward to the end of a match
 // by touch alone, and in every size (and Safari's engine, WebKit, where it's installed) everything fits and takes a tap.
 //
-//   node scripts/test-bedwars.mjs [--quick: no whole match] [--phones: only the phones and tablets]
+//   node test/play.mjs [--quick: no whole match] [--phones: only the phones and tablets]
 import { webkit, devices } from 'playwright';
-import { launch, routeCdn } from './pw.mjs';
+import { launch, routeCdn } from 'orb-kit/browser';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-// The game: index.html at the top of its own repository (where this suite is test/play.mjs), or
-// Orb's copy of it (public/templates/bedwars.html, this suite being scripts/test-bedwars.mjs).
-const GAME = ['index.html', 'public/templates/bedwars.html'].map((f) => path.join(root, f)).find((f) => fs.existsSync(f));
+const GAME = path.join(root, 'index.html');
 const URL = 'file://' + GAME + '?debug';
 const quick = process.argv.includes('--quick'), phonesOnly = process.argv.includes('--phones');
 let failures = 0;
