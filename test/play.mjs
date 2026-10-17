@@ -162,7 +162,8 @@ try {
   ok(lobby.onGround, 'you spawn on solid ground');
   // the parkour: start, both checkpoints and the finish count, and the finish pays out once
   const pk = await page.evaluate(async () => {
-    const b = window.__bw, P = b.world().pk, p = b.player, at = async (c) => { p.x = c[0] + 0.5; p.z = c[2] + 0.5; p.y = c[1] + 0.05; p.vx = p.vz = p.vy = 0; await new Promise((r) => setTimeout(r, 250)); };
+    const b = window.__bw, P = b.world().pk, p = b.player, at = async (c) => { p.x = c[0] + 0.5; p.z = c[2] + 0.5; p.y = c[1] + 0.05; p.vx = p.vz = p.vy = 0; await new Promise((r) => setTimeout(r, 250)); await frames(4); };
+    const frames = (n) => new Promise((r) => { const f = () => (--n <= 0 ? r() : requestAnimationFrame(f)); requestAnimationFrame(f); });
     const c0 = b.profile.coins;
     await at(P.start); const started = b.pk.on;
     for (const c of P.cps) await at(c);
@@ -527,6 +528,8 @@ try {
   const cell = await P.evaluate(() => { const a = window.__bw.aim.block; return a ? [a.x + a.nx, a.y + a.ny, a.z + a.nz] : null; });
   const placed0 = await P.evaluate(() => window.__bw.player.stats.placed);
   await f.tap('#tPlace');
+  // the block goes down on the game's next frame (later on a slow machine)
+  await P.waitForFunction((n0) => window.__bw.player.stats.placed > n0, placed0, { timeout: 5000 }).catch(() => {});
   const placedOk = await P.evaluate(([c, n0]) => { const b = window.__bw; return b.player.stats.placed === n0 + 1 && b.getB(c[0], c[1], c[2]) === b.TEAMS[3].wool; }, [cell, placed0]);
   ok(!!cell && placedOk, 'aimed at the ground, a tap on the block button puts a wool block there');
   await f.down('#tBreak'); await P.waitForTimeout(1600); await f.up();
