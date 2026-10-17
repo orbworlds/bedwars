@@ -1,7 +1,7 @@
 {
   "name": "bedwars",
   "private": true,
-  "description": "Bed Wars in your browser, in one HTML file: bridge across, gear up, guard your bed and break theirs.",
+  "description": "Bed Wars in the browser. Bridge across, protect your bed and break everyone else's. Bots fill the empty seats.",
   "type": "module",
   "license": "MIT",
   "homepage": "https://orbworlds.com/orb/bed-wars",
