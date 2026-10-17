@@ -23,7 +23,7 @@ Solo, Doubles, Trios and Squads on ten sky arenas, each a world of its own: brid
 - A lobby to meet friends in, with its own parkour.
 - Daily quests, a login streak and a monthly **Bed Pass**; outfits, hats, kill effects and victory dances in the wardrobe.
 
-**Controls:** WASD to move (double-tap W to sprint), mouse to look, click to hit and place blocks, Space to jump, Shift or C to sneak, B for the shop and team upgrades, G for emotes and quick chat. Phones and tablets play by touch.
+**Controls:** WASD to move (double-tap W or hold Ctrl to sprint), mouse to look, click to hit and place blocks, Space to jump, Shift or C to sneak, B for the shop and team upgrades, G for emotes and quick chat, V for first person. Every key can be changed in Menu → Controls, and sprinting can be a toggle. Phones and tablets play by touch.
 
 ## Remix it
 

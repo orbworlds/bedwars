@@ -273,6 +273,100 @@ try {
   // --- a match: the shop, items, then every mode ------------------------------------------------------------------
   await play(page, 'solo', 0); await startNow(page);
   await page.waitForFunction(() => window.__bw.match.phase === 'play', null, { timeout: 15000 });
+  // the controls: Menu → Controls takes a new key for walking forward (the key it had goes to the other action), and it walks
+  // where you respawn, facing the way you do
+  const standAtHome = () => page.evaluate(() => { const b = window.__bw, p = b.player, base = b.world().bases[p.team]; Object.assign(p, { x: base.x, z: base.z, y: base.y + 0.05, ry: base.y + 0.05, vx: 0, vy: 0, vz: 0, dead: false, prot: 99 }); b.cam.yaw = base.yaw; });
+  await page.keyboard.press('Escape');
+  await page.waitForFunction(() => window.__bw.game.state === 'pause');
+  await page.click('#pKeys'); await page.click('#bindList button[data-a="fwd"]'); await page.keyboard.press('KeyI');
+  await page.click('#bindList button[data-a="back"]'); await page.keyboard.press('KeyI');   // I again, for back: a swap
+  const rebound = await page.evaluate(() => ({ ...window.__bw.binds, list: document.getElementById('bindList').innerText, help: document.getElementById('keysHelp2').innerText }));
+  ok(rebound.back === 'KeyI' && rebound.fwd === 'KeyS' && /Forward\s*S/.test(rebound.list), `Controls: keys can be changed, and taking one that's in use swaps them (forward ${rebound.fwd}, back ${rebound.back})`);
+  await page.click('#bindList button[data-a="fwd"]'); await page.keyboard.press('KeyO');
+  await page.click('#bindList button[data-a="sprint"]'); await page.keyboard.press('KeyQ');
+  await page.click('#pSprint');
+  await page.click('#resume');
+  await standAtHome();
+  const walk = async (ms, sprintTap = false) => {
+    if (sprintTap) await page.keyboard.press('KeyQ');
+    const at = await page.evaluate(() => [window.__bw.player.x, window.__bw.player.z]);
+    await page.keyboard.down('KeyO'); await page.waitForTimeout(ms);
+    const r = await page.evaluate((at) => { const p = window.__bw.player; return { d: Math.hypot(p.x - at[0], p.z - at[1]), v: Math.hypot(p.vx, p.vz) }; }, at);
+    await page.keyboard.up('KeyO'); return r;
+  };
+  const w1 = await walk(400);
+  ok(w1.d > 0.8 && w1.v < 5.4, `the new forward key walks (${w1.d.toFixed(1)} blocks at ${w1.v.toFixed(1)}/s)`);
+  await standAtHome();
+  const w2 = await walk(400, true);
+  await standAtHome();
+  const w3 = await walk(400);
+  await standAtHome();
+  const w4 = await walk(400, true);
+  ok(w2.v > 5.4 && w3.v > 5.4 && w4.v < 5.4, `Sprint: toggle — the sprint key turns sprinting on (${w2.v.toFixed(1)}/s), it stays on (${w3.v.toFixed(1)}/s), and off again (${w4.v.toFixed(1)}/s)`);
+  const reset = await page.evaluate(() => { const b = window.__bw; Object.assign(b.binds, b.BINDS0); b.sprintMode.toggle = false; b.sprintMode.on = false; localStorage.removeItem('bw:binds'); localStorage.removeItem('bw:sprintToggle'); return b.binds.fwd; });
+  ok(reset === 'KeyW' && rebound.help.includes('SAID'), `the key help in the menu says the keys as you have them (${rebound.help.slice(0, 40)}…)`);
+
+  // your hand in first person: what you hold, and it changes with the hotbar
+  const hand = await page.evaluate(async () => {
+    const b = window.__bw, p = b.player, frame = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    b.cam.first = true; p.inv.wool = 32; p.sword = 1;
+    const items = b.hotbarItems(), sw = items.findIndex((i) => i.kind === 'sword'), bl = items.findIndex((i) => i.kind === 'block');
+    b.setSel(sw); await frame(); const a = { on: b.vm.on, key: b.vm.key, item: !!b.vm.item, arm: !!b.vm.arm };
+    b.setSel(bl); await frame(); const c = { key: b.vm.key, item: !!b.vm.item };
+    b.cam.first = false; await frame();
+    p.inv.wool = 0; p.sword = 0; b.setSel(0);
+    return { a, c, off: !b.vm.on };
+  });
+  ok(hand.a.on && hand.a.arm && hand.a.item && hand.a.key[0] === 's' && hand.c.item && hand.c.key[0] === 'b' && hand.off, `in first person your hand shows what it holds (${hand.a.key}, then ${hand.c.key}); behind you, your character holds it`);
+
+  // your forge keeps your share while you're away, and pays it out when you're back
+  const stash = await page.evaluate(() => {
+    const b = window.__bw, p = b.player, w = b.world(), f = w.gens.find((g) => g.kind === 'forge' && g.t === p.team);
+    p.res.iron = 0; p.res.gold = 0; p.stash = {};
+    Object.assign(p, { x: f.x + 12, z: f.z, y: f.y });
+    for (let i = 0; i < 300; i++) b.generators(p, 0.5);
+    const kept = { ...p.stash }, carried = p.res.iron;
+    Object.assign(p, { x: f.x, z: f.z, y: f.y });
+    b.generators(p, 0.01);
+    return { kept, carried, got: p.res.iron, gold: p.res.gold, left: p.stash.iron };
+  });
+  ok(stash.kept.iron === 48 && stash.kept.gold === 12 && stash.carried === 0 && stash.got === 48 && stash.gold === 12 && stash.left === 0, `the forge keeps your iron and gold while you're away (${stash.kept.iron} and ${stash.kept.gold}, at most) and pays it out when you're back`);
+
+  // bots turn on whoever hit them from farther off than they'd chase (from Normal up)
+  const hitBack = await page.evaluate(() => {
+    const b = window.__bw, p = b.player, bot = [...b.net.bots.values()].find((e) => e.kind === 'p' && !e.dead && e.team !== p.team);
+    b.match.botLevel = 1;
+    Object.assign(bot, { x: p.x + 13, z: p.z, y: p.y, prot: 0 }); bot.ai.foe = null;
+    b.hurt(bot, 0.5, p, {}); b.botThink(bot);
+    const r = bot.ai.foe === p; bot.prot = 0;
+    return { r, chase: b.BL().chase };
+  });
+  ok(hitBack.r, `a bot hit from 13 blocks off comes after you (it chases ${hitBack.chase} on its own)`);
+
+  // the islands falling come as an earthquake: the ground shakes, and every few seconds a jolt
+  const quake = await page.evaluate(async () => {
+    const b = window.__bw, p = b.player, at = b.eventAt('fall');
+    p.dead = false; p.spectating = false; b.match.cols = []; b.match.sd = true; b.match.t = at + 0.5; b.match.jolt = -1;   // nothing crumbles, no beds go: the shaking only
+    await new Promise((r) => setTimeout(r, 120));
+    const calm = b.match.jolt, shaking = b.game.shake > 0.02;
+    b.match.t = at + 7.2; await new Promise((r) => setTimeout(r, 120));
+    return { calm, jolt: b.match.jolt, shaking, shake: b.game.shake };
+  });
+  ok(quake.calm === 0 && quake.jolt === 1 && quake.shaking && quake.shake > 0.3, `the islands falling shake the ground, with a jolt every 7 s (${JSON.stringify(quake)})`);
+
+  // others move smoothly however unevenly their updates arrive: each is timed by when it was sent
+  const smooth = await page.evaluate(() => {
+    const b = window.__bw, e = {}, real = performance.now;
+    let fake = 1000000;
+    performance.now = () => fake;
+    try {
+      for (let i = 0; i < 8; i++) { fake = 1000000 + i * 200 + [40, 160, 10, 120, 70, 150, 20, 90][i]; b.pushSample(e, [i, 60, 0, 0, 0, 5, 0], 5000 + i * 200); }
+    } finally { performance.now = real; }
+    const gaps = e.nb.slice(1).map((s, i) => s.t - e.nb[i].t);
+    return { n: e.nb.length, min: Math.min(...gaps), max: Math.max(...gaps) };
+  });
+  ok(smooth.n === 8 && Math.abs(smooth.min - 0.2) < 0.02 && Math.abs(smooth.max - 0.2) < 0.02, `positions are timed by when they were sent, not by when they came (gaps ${smooth.min.toFixed(3)}–${smooth.max.toFixed(3)} s, sent every 0.2 s)`);
+  await page.evaluate(() => { const m = window.__bw.match; Object.assign(m, { t: 30, jolt: -1, cols: null, fall: 0, sd: false }); m.said = new Set(); window.__bw.game.shake = 0; });
   const shop = await page.evaluate(async () => {
     const b = window.__bw, p = b.player, r = {};
     r.bots = b.net.bots.size; r.teams = b.world().n;
@@ -291,6 +385,7 @@ try {
   ok(['wool', 'sword1', 'armor1', 'pick', 'shears', 'bow1', 'fireball', 'tnt', 'popup', 'golem', 'bug', 'milk', 'tracker', 'ladder', 'egg', 'pearl'].every((k) => shop[k]), 'everything in the shop can be bought');
   ok(shop.up, 'team upgrades apply');
   ok(shop.popup && shop.golem && shop.fx, 'pop-up towers, Dream Defenders, magic milk and the tracker work');
+
   for (const [mode, mp] of [['duos', 1], ['trios', 2], ['squads', 3], ['rush', 4], ['lowgrav', 5], ['voidless', 6], ['lucky', 7]]) {
     await play(page, mode, mp); await startNow(page);
     await page.waitForFunction((m) => window.__bw.match.phase === 'play' && window.__bw.match.mode === m, mode, { timeout: 15000 });
